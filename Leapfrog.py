@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.optimize import fsolve
 import matplotlib.pyplot as plt
 
 # Gravitational Constant (m^3 kg^-1 s^-2)
@@ -12,68 +13,90 @@ M_jupiter = 1.898e27
 # Jupiter's Orbital Elements
 a_jupiter = 7.7834276e11  # Semi-major axis (m)
 e_jupiter = 0.0484  # Eccentricity
+mean_jupiter = np.radians(0)  # True anomaly at epoch (radians)
 i_jupiter = np.radians(0)  # Inclination (radians) 1.304
 omega_jupiter = np.radians(0)  # Argument of periapsis (radians) 274.3
 Omega_jupiter = np.radians(0)  # Longitude of ascending node (radians) 100.4
-theta_jupiter = np.radians(0)  # True anomaly at epoch (radians)
 
 # Earth's Orbital Elements
 a_third = 1.496e11
 e_third = 0.0167
+mean_third = np.radians(0)
 i_third = np.radians(0)
 omega_third = np.radians(0)
 Omega_third = np.radians(0)
-theta_third = np.radians(0)
 
 
-def orbital_elements_to_cartesian(a, e, i, omega, Omega, theta, mu):
+def keplers_equation(E, M, e):
+    return E - e * np.sin(E) - M
+
+
+def solve_keplers_equation(M, e):
+    E_initial_guess = M if e < 0.8 else np.pi
+    E_solution, = fsolve(keplers_equation, E_initial_guess, args=(M, e))
+    return E_solution
+
+
+def orbital_elements_to_polar(a, e, M, mu):
     """
-    Convert orbital elements to position and velocity in Cartesian coordinates.
-    a: semi-major axis (m)
-    e: eccentricity
-    i: inclination (radians)
-    omega: argument of periapsis (radians)
-    Omega: longitude of ascending node (radians)
-    theta: true anomaly (radians)
-    mu: gravitational parameter (G * M_sun)
+    Convert orbital elements to polar coordinates (r, theta) and velocities (vr, vθ) in SI units.
+
+    Parameters:
+        a  - Semi-major axis (meters)
+        e  - Eccentricity (unitless)
+        M  - Mean anomaly (radians)
+        mu - Gravitational parameter (m^3/s^2)
+
+    Returns:
+        r  - Radius (meters)
+        theta - True anomaly (radians)
+        v_r - Radial velocity (m/s)
+        v_theta - Tangential velocity (m/s)
     """
-    r = a * (1 - e ** 2) / (1 + e * np.cos(theta))
+    # Solve Kepler's Equation to get the eccentric anomaly E
+    E = solve_keplers_equation(M, e)
 
-    # Position in orbital plane
-    x_prime = r * np.cos(theta)
-    y_prime = r * np.sin(theta)
+    # Compute true anomaly θ from eccentric anomaly E
+    theta = 2 * np.arctan2(np.sqrt(1 + e) * np.sin(E / 2), np.sqrt(1 - e) * np.cos(E / 2))
 
-    # Velocity in orbital plane
+    # Compute the radius r
+    r = a * (1 - e * np.cos(E))
+
+    # Compute velocity components in polar coordinates
     h = np.sqrt(mu * a * (1 - e ** 2))  # Specific angular momentum
-    v_r = (mu / h) * e * np.sin(theta)
-    v_theta = (mu / h) * (1 + e * np.cos(theta))
+    v_r = (mu / h) * e * np.sin(theta)  # Radial velocity (m/s)
+    v_theta = (mu / h) * (1 + e * np.cos(theta))  # Tangential velocity (m/s)
 
-    # Rotate to 3D space
-    cos_Omega, sin_Omega = np.cos(Omega), np.sin(Omega)
-    cos_i, sin_i = np.cos(i), np.sin(i)
-    cos_omega, sin_omega = np.cos(omega), np.sin(omega)
+    return r, theta, v_r, v_theta
 
-    # x = (cos_Omega * cos_omega - sin_Omega * sin_omega * cos_i) * x_prime + (
-    #        -cos_Omega * sin_omega - sin_Omega * cos_omega * cos_i) * y_prime
-    # y = (sin_Omega * cos_omega + cos_Omega * sin_omega * cos_i) * x_prime + (
-    #        -sin_Omega * sin_omega + cos_Omega * cos_omega * cos_i) * y_prime
-    # z = (sin_i * sin_omega) * x_prime + (sin_i * cos_omega) * y_prime
 
-    # vx = (cos_Omega * cos_omega - sin_Omega * sin_omega * cos_i) * v_r + (
-    #        -cos_Omega * sin_omega - sin_Omega * cos_omega * cos_i) * v_theta
-    # vy = (sin_Omega * cos_omega + cos_Omega * sin_omega * cos_i) * v_r + (
-    #        -sin_Omega * sin_omega + cos_Omega * cos_omega * cos_i) * v_theta
-    # vz = (sin_i * sin_omega) * v_r + (sin_i * cos_omega) * v_theta
+def orbital_elements_to_cartesian(a, e, M, mu):
+    """
+    Convert orbital elements to Cartesian coordinates (x, y) and velocities (vx, vy) in SI units.
 
-    x = x_prime
-    y = y_prime
-    z = 0
+    Parameters:
+        a  - Semi-major axis (meters)
+        e  - Eccentricity (unitless)
+        M  - Mean anomaly (radians)
+        mu - Gravitational parameter (m^3/s^2)
 
-    vx = v_r
-    vy = v_theta
-    vz = 0
+    Returns:
+        x  - x-position (meters)
+        y  - y-position (meters)
+        vx - x-velocity (m/s)
+        vy - y-velocity (m/s)
+    """
+    r, theta, v_r, v_theta = orbital_elements_to_polar(a, e, M, mu)
 
-    return np.array([x, y, z]), np.array([vx, vy, vz])
+    # Convert polar to Cartesian coordinates
+    x = r * np.cos(theta)
+    y = r * np.sin(theta)
+
+    # Convert polar velocities to Cartesian velocities
+    vx = v_r * np.cos(theta) - v_theta * np.sin(theta)
+    vy = v_r * np.sin(theta) + v_theta * np.cos(theta)
+
+    return np.array([x, y]), np.array([vx, vy])
 
 
 def orbital_energy(r, v, mu):
@@ -82,7 +105,9 @@ def orbital_energy(r, v, mu):
 
 # Function to Compute Orbital Angular Momentum
 def orbital_angular_momentum(r, v):
-    return np.linalg.norm(np.cross(r, v))
+    r_3d = np.array([r[0], r[1], 0])
+    v_3d = np.array([v[0], v[1], 0])
+    return np.linalg.norm(np.cross(r_3d, v_3d))
 
 
 # Function to Compute Eccentricity
@@ -103,8 +128,13 @@ def total_energy(r_j, v_j, r_t, v_t):
 
 # Function to Compute Total Angular Momentum
 def total_angular_momentum(r_j, v_j, r_t, v_t):
-    mom_jupiter = M_jupiter * np.cross(r_j, v_j)
-    mom_third = M_third * np.cross(r_t, v_t)
+    r_j_3d = np.array([r_j[0], r_j[1], 0])
+    v_j_3d = np.array([v_j[0], v_j[1], 0])
+    r_t_3d = np.array([r_t[0], r_t[1], 0])
+    v_t_3d = np.array([v_t[0], v_t[1], 0])
+
+    mom_jupiter = M_jupiter * np.cross(r_j_3d, v_j_3d)
+    mom_third = M_third * np.cross(r_t_3d, v_t_3d)
     return np.linalg.norm(mom_jupiter + mom_third)
 
 
@@ -116,12 +146,11 @@ def compute_acceleration(r1, r2, m2):
 
 
 # Convert Orbital Elements to Cartesian Coordinates
-jupiter_position, jupiter_velocity = orbital_elements_to_cartesian(a_jupiter, e_jupiter, i_jupiter, omega_jupiter,
-                                                                   Omega_jupiter, theta_jupiter, mu_sun)
-#third_position, third_velocity = orbital_elements_to_cartesian(a_third, e_third, i_third, omega_third, Omega_third, theta_third, mu_sun)
+jupiter_position, jupiter_velocity = orbital_elements_to_cartesian(a_jupiter, e_jupiter, mean_jupiter, mu_sun)
+third_position, third_velocity = orbital_elements_to_cartesian(a_third, e_third, mean_third, mu_sun)
 
 # Leapfrog Integration Setup
-time_steps = 10000  # step: 10168 vid x=0, 10501 vid y_max=777428176035.929
+time_steps = 4000  # step: 10168 vid x=0, 10501 vid y_max=777428176035.929
 dt = 86400  # 1 day
 t = 0
 time_array = []
@@ -134,9 +163,9 @@ y_pos_third = []
 
 r_j = jupiter_position
 v_j = jupiter_velocity
-r_third = np.array([7e11, 0, 0], dtype=np.float64)
-v_third = np.array([0, 10000, 0], dtype=np.float64)
-M_third = 9.002e27  # Earth 5.972e24
+r_third = np.array([7e11, 0], dtype=np.float64)
+v_third = np.array([0, 10000], dtype=np.float64)
+M_third = 8.002e26
 
 ecc_jupiter = []
 ecc_third = []
@@ -149,18 +178,18 @@ moment_third = []
 for step in range(time_steps):
     # Half-step velocity update
     v_j += 0.5 * dt * (
-                compute_acceleration(r_j, np.array([0, 0, 0]), M_sun) + compute_acceleration(r_j, r_third, M_third))
+            compute_acceleration(r_j, np.array([0, 0]), M_sun) + compute_acceleration(r_j, r_third, M_third))
     v_third += 0.5 * dt * (
-                compute_acceleration(r_third, np.array([0, 0, 0]), M_sun) + compute_acceleration(r_third, r_j,
-                                                                                                 M_jupiter))
+            compute_acceleration(r_third, np.array([0, 0]), M_sun) + compute_acceleration(r_third, r_j,
+                                                                                          M_jupiter))
 
     # Full position update
     r_j += v_j * dt
     r_third += v_third * dt
 
-    acc_j = compute_acceleration(r_j, np.array([0, 0, 0]), M_sun) + compute_acceleration(r_j, r_third, M_third)
-    acc_third = compute_acceleration(r_third, np.array([0, 0, 0]), M_sun) + compute_acceleration(r_third, r_j,
-                                                                                                 M_jupiter)
+    acc_j = compute_acceleration(r_j, np.array([0, 0]), M_sun) + compute_acceleration(r_j, r_third, M_third)
+    acc_third = compute_acceleration(r_third, np.array([0, 0]), M_sun) + compute_acceleration(r_third, r_j,
+                                                                                              M_jupiter)
 
     # Half-step velocity update
     v_j += 0.5 * dt * acc_j
@@ -177,18 +206,18 @@ for step in range(time_steps):
     y_pos_third.append(r_third[1])
 
     # To see plots (will remove later)
-    #energy_jupiter = orbital_energy(r_j, v_j, mu_sun)
-    #h_jupiter = orbital_angular_momentum(r_j, v_j)
-    #energy_third = orbital_energy(r_third, v_third, mu_sun)
-    #h_third = orbital_angular_momentum(r_third, v_third)
-    #energy_total = total_energy(r_j, v_j, r_third, v_third)
-    #angular_momentum_total = total_angular_momentum(r_j, v_j, r_third, v_third)
-    #ener_jupiter.append(energy_jupiter)
-    #moment_jupiter.append(h_jupiter)
-    #ener_third.append(energy_third)
-    #moment_third.append(h_third)
-    #total_energy_array.append(energy_total)
-    #total_moment_array.append(angular_momentum_total)
+    energy_jupiter = orbital_energy(r_j, v_j, mu_sun)
+    h_jupiter = orbital_angular_momentum(r_j, v_j)
+    energy_third = orbital_energy(r_third, v_third, mu_sun)
+    h_third = orbital_angular_momentum(r_third, v_third)
+    energy_total = total_energy(r_j, v_j, r_third, v_third)
+    angular_momentum_total = total_angular_momentum(r_j, v_j, r_third, v_third)
+    ener_jupiter.append(energy_jupiter)
+    moment_jupiter.append(h_jupiter)
+    ener_third.append(energy_third)
+    moment_third.append(h_third)
+    total_energy_array.append(energy_total)
+    total_moment_array.append(angular_momentum_total)
 
     time_array.append(t)
     t += dt
@@ -229,7 +258,7 @@ plt.xlabel('Time (days)')
 plt.ylabel('Energy')
 plt.title('Jupiter energy over time')
 plt.grid()
-# plt.show()
+#plt.show()
 
 plt.figure()
 plt.plot(np.divide(time_array, 86400), ener_third)
@@ -237,7 +266,7 @@ plt.xlabel('Time (days)')
 plt.ylabel('Energy')
 plt.title('Third body energy over time')
 plt.grid()
-# plt.show()
+#plt.show()
 
 # Plot angular momentum over time
 plt.figure()
@@ -246,7 +275,7 @@ plt.xlabel('Time (days)')
 plt.ylabel('Angular momentum')
 plt.title('Jupiter angular momentum over time')
 plt.grid()
-# plt.show()
+#plt.show()
 
 plt.figure()
 plt.plot(np.divide(time_array, 86400), moment_third)
@@ -254,7 +283,7 @@ plt.xlabel('Time (days)')
 plt.ylabel('Angular momentum')
 plt.title('Third body angular momentum over time')
 plt.grid()
-# plt.show()
+#plt.show()
 
 # Plot total energy over time
 plt.figure()
@@ -263,7 +292,7 @@ plt.xlabel('Time (days)')
 plt.ylabel('Total Energy')
 plt.title('Total Energy over Time')
 plt.grid()
-# plt.show()
+#plt.show()
 
 # Plot total angular momentum over time
 plt.figure()
@@ -272,4 +301,4 @@ plt.xlabel('Time (days)')
 plt.ylabel('Total Angular Momentum')
 plt.title('Total Angular Momentum over Time')
 plt.grid()
-# plt.show()
+#plt.show()
